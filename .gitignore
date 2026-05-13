@@ -7,5 +7,6 @@ __pycache__/
 frontend/node_modules/
 frontend/build/
 frontend/.svelte-kit/
+frontend/.vercel/
 
 # data/graph_data.json no longer used — output goes to frontend/static/graph_data.json
