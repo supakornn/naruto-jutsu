@@ -85,7 +85,7 @@
   <canvas
     bind:this={canvas}
     class="absolute inset-0 h-full w-full cursor-grab active:cursor-grabbing"
-  />
+  ></canvas>
 
   <header
     class="pointer-events-none absolute top-0 right-0 left-0 flex items-center gap-3 px-5 py-3"
