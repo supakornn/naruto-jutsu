@@ -56,9 +56,11 @@ export class GraphView {
     // State
     this.selected = null;
     this.hovered = null;
+    this.listHovered = null;
     this.highlighted = new Set();
     this.dimmed = false;
     this.showEdges = true;
+    this.relOnly = false;
     this.dirty = true;
     this._userInteracted = false;
 
@@ -106,7 +108,7 @@ export class GraphView {
   }
 
   _startSimulation() {
-    const nodes = this.nodes.map((n) => ({ ...n, _ref: n }));
+    const nodes = this.nodes.map((n) => ({ ...n, _ref: n, ix: n.x, iy: n.y }));
     const nodeIndex = {};
     nodes.forEach((n) => (nodeIndex[n.id] = n));
 
@@ -118,14 +120,12 @@ export class GraphView {
       .map((e) => ({ source: nodeIndex[e.source], target: nodeIndex[e.target], isMember: false }))
       .filter((l) => l.source && l.target);
 
-    const allLinks = [...memberLinks, ...relLinks];
-
     this._sim = forceSimulation(nodes)
       .alpha(1)
       .alphaDecay(0.04)
       .force(
         'link',
-        forceLink(allLinks)
+        forceLink([...memberLinks, ...relLinks])
           .id((d) => d.id)
           .distance((l) => (l.isMember ? 180 : 60))
           .strength((l) => (l.isMember ? 0.2 : 0.7)),
@@ -234,6 +234,42 @@ export class GraphView {
     this.dirty = true;
   }
 
+  setRelOnly(val) {
+    this.relOnly = val;
+    this.dirty = true;
+  }
+
+  setListHover(node) {
+    this.listHovered = node;
+    if (node) {
+      this.highlighted.clear();
+      this.highlighted.add(node.id);
+      // also highlight its category hubs
+      (this.edgesByNodeId[node.id] || []).forEach((e) => {
+        if (e.rel === 'type_membership') {
+          this.highlighted.add(e.source);
+          this.highlighted.add(e.target);
+        }
+      });
+      this.dimmed = true;
+    } else {
+      // restore selection state
+      if (this.selected) {
+        this.highlighted.clear();
+        this.highlighted.add(this.selected.id);
+        (this.edgesByNodeId[this.selected.id] || []).forEach((e) => {
+          this.highlighted.add(e.source);
+          this.highlighted.add(e.target);
+        });
+        this.dimmed = true;
+      } else {
+        this.highlighted.clear();
+        this.dimmed = false;
+      }
+    }
+    this.dirty = true;
+  }
+
   jumpRandom() {
     const pool = this.nodes.filter((n) => n.type === 'jutsu' && this.visibleIds.has(n.id));
     if (!pool.length) return;
@@ -296,49 +332,89 @@ export class GraphView {
     const s = this.scale;
 
     if (this.dimmed) {
-      ctx.lineWidth = 1.2 / s;
-      this.edges.forEach((e) => {
-        if (!this.highlighted.has(e.source) && !this.highlighted.has(e.target)) return;
+      // Membership edges to/from selected or listHovered node
+      ctx.lineWidth = 2 / s;
+      const selId = (this.listHovered ?? this.selected)?.id;
+      this.memberEdges.forEach((e) => {
+        if (e.source !== selId && e.target !== selId) return;
         const src = this.nodeById[e.source],
           tgt = this.nodeById[e.target];
         if (!src || !tgt) return;
-        ctx.globalAlpha = e.rel === 'type_membership' ? 0.5 : 1;
-        ctx.strokeStyle = e.rel === 'type_membership' ? e.color || '#666' : '#FFD700';
+        const baseColor = (e.color || '#666').slice(0, 7);
+        // glow pass
+        ctx.globalAlpha = 0.1;
+        ctx.strokeStyle = baseColor;
+        ctx.lineWidth = 3 / s;
+        ctx.beginPath();
+        ctx.moveTo(src.x, src.y);
+        ctx.lineTo(tgt.x, tgt.y);
+        ctx.stroke();
+        // crisp pass
+        ctx.globalAlpha = 0.45;
+        ctx.lineWidth = 1 / s;
         ctx.beginPath();
         ctx.moveTo(src.x, src.y);
         ctx.lineTo(tgt.x, tgt.y);
         ctx.stroke();
       });
+
+      // Rel edges — gold dashed, bright
+      ctx.setLineDash([6 / s, 4 / s]);
+      this.relEdges.forEach((e) => {
+        if (e.source !== selId && e.target !== selId) return;
+        const src = this.nodeById[e.source],
+          tgt = this.nodeById[e.target];
+        if (!src || !tgt) return;
+        // glow
+        ctx.globalAlpha = 0.15;
+        ctx.strokeStyle = '#FFD700';
+        ctx.lineWidth = 4 / s;
+        ctx.beginPath();
+        ctx.moveTo(src.x, src.y);
+        ctx.lineTo(tgt.x, tgt.y);
+        ctx.stroke();
+        // line
+        ctx.globalAlpha = 0.7;
+        ctx.strokeStyle = '#FFD700';
+        ctx.lineWidth = 1.2 / s;
+        ctx.beginPath();
+        ctx.moveTo(src.x, src.y);
+        ctx.lineTo(tgt.x, tgt.y);
+        ctx.stroke();
+      });
+      ctx.setLineDash([]);
       ctx.globalAlpha = 1;
       return;
     }
 
-    // Membership edges — batched by color
-    ctx.globalAlpha = 0.18;
-    ctx.lineWidth = 0.5 / s;
-    const byColor = {};
-    this.memberEdges.forEach((e) => {
-      const src = this.nodeById[e.source],
-        tgt = this.nodeById[e.target];
-      if (!src || !tgt || !this.visibleIds.has(e.source) || !this.visibleIds.has(e.target)) return;
-      const c = e.color || '#666';
-      (byColor[c] ??= []).push([src.x, src.y, tgt.x, tgt.y]);
-    });
-    Object.entries(byColor).forEach(([color, segs]) => {
-      ctx.strokeStyle = color;
-      ctx.beginPath();
-      segs.forEach(([x1, y1, x2, y2]) => {
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
+    // Membership edges — batched by color (hidden in relOnly mode)
+    if (!this.relOnly) {
+      ctx.globalAlpha = 0.18;
+      ctx.lineWidth = 0.5 / s;
+      const byColor = {};
+      this.memberEdges.forEach((e) => {
+        const src = this.nodeById[e.source],
+          tgt = this.nodeById[e.target];
+        if (!src || !tgt || !this.visibleIds.has(e.source) || !this.visibleIds.has(e.target)) return;
+        const c = e.color || '#666';
+        (byColor[c] ??= []).push([src.x, src.y, tgt.x, tgt.y]);
       });
-      ctx.stroke();
-    });
+      Object.entries(byColor).forEach(([color, segs]) => {
+        ctx.strokeStyle = color;
+        ctx.beginPath();
+        segs.forEach(([x1, y1, x2, y2]) => {
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x2, y2);
+        });
+        ctx.stroke();
+      });
+    }
 
-    // Relationship edges — dashed gold
+    // Relationship edges — dashed gold (brighter in relOnly mode)
     if (this.relEdges.length) {
-      ctx.globalAlpha = 0.5;
+      ctx.globalAlpha = this.relOnly ? 0.9 : 0.5;
       ctx.strokeStyle = '#FFD700';
-      ctx.lineWidth = 0.8 / s;
+      ctx.lineWidth = (this.relOnly ? 1.5 : 0.8) / s;
       ctx.setLineDash([5 / s, 5 / s]);
       ctx.beginPath();
       this.relEdges.forEach((e) => {
@@ -367,14 +443,15 @@ export class GraphView {
       const isDim = this.dimmed && !this.highlighted.has(n.id);
       const isSel = this.selected?.id === n.id;
       const isHov = this.hovered?.id === n.id;
+      const isListHov = this.listHovered?.id === n.id;
 
       ctx.globalAlpha = isDim ? 0.03 : 1;
 
-      const r = isSel ? 9 : isHov ? 7 : 4.5;
+      const r = isSel ? 9 : isHov || isListHov ? 7 : 4.5;
 
-      if (isSel || isHov) {
+      if (isSel || isHov || isListHov) {
         ctx.shadowColor = n.color;
-        ctx.shadowBlur = isSel ? 22 : 12;
+        ctx.shadowBlur = isSel ? 22 : 14;
       }
 
       ctx.fillStyle = n.color;
@@ -387,8 +464,41 @@ export class GraphView {
         ctx.strokeStyle = '#fff';
         ctx.lineWidth = 1.5 / s;
         ctx.stroke();
+      } else if (isListHov) {
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1.2 / s;
+        ctx.stroke();
+        // label above node
+        const fs = Math.max(9, Math.min(12, 10 / s));
+        ctx.fillStyle = '#fff';
+        ctx.font = `bold ${fs}px 'Segoe UI', sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.shadowColor = '#000';
+        ctx.shadowBlur = 4;
+        ctx.fillText(n.label, n.x, n.y - r - 3 / s);
+        ctx.shadowBlur = 0;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
       } else if (isHov) {
         ctx.shadowBlur = 0;
+      }
+
+      // Draw label for highlighted nodes when dimmed (no hover needed)
+      // Skip if too many highlighted nodes (e.g. clicking a large category)
+      if (!isDim && this.dimmed && showLabel && this.highlighted.size <= 30) {
+        const fs = Math.max(9, Math.min(12, 10 / s));
+        ctx.shadowColor = '#000';
+        ctx.shadowBlur = 4;
+        ctx.fillStyle = isSel ? '#fff' : '#ddd';
+        ctx.font = `${isSel ? 'bold ' : ''}${fs}px 'Segoe UI', sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText(n.label, n.x, n.y + r + 3 / s);
+        ctx.shadowBlur = 0;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
       }
 
       ctx.globalAlpha = 1;
@@ -399,8 +509,10 @@ export class GraphView {
       if (n.type !== 'category') return;
       const isSel = this.selected?.id === n.id;
       const isHov = this.hovered?.id === n.id;
-      const r = 18;
+      const isDim = this.dimmed && !this.highlighted.has(n.id);
+      const r = Math.max(12, Math.min(38, 10 + Math.sqrt(n.count || 0) * 0.55));
 
+      ctx.globalAlpha = isDim ? 0.06 : 1;
       ctx.shadowColor = n.color;
       ctx.shadowBlur = isHov || isSel ? 35 : 20;
 
@@ -418,12 +530,14 @@ export class GraphView {
 
       if (showLabel) {
         const fs = Math.max(8, Math.min(13, 11 / s));
-        ctx.fillStyle = '#fff';
+        ctx.fillStyle = isDim ? 'rgba(255,255,255,0.15)' : '#fff';
         ctx.font = `bold ${fs}px 'Segoe UI', sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(n.label, n.x, n.y);
       }
+
+      ctx.globalAlpha = 1;
     });
 
     ctx.textAlign = 'left';
@@ -432,18 +546,26 @@ export class GraphView {
 
   _drawTooltip() {
     const n = this.hovered;
-    if (!n || n.type === 'category') return;
+    if (!n) return;
 
     const { ctx, logW: W = 800, logH: H = 600 } = this;
     const [sx, sy] = this.w2s(n.x, n.y);
 
     const label = n.label;
+    const sub = n.type === 'category'
+      ? `${n.count} jutsus`
+      : n.jutsu_types?.join(', ') || '';
+
     const fs = 12;
-    ctx.font = `${fs}px 'Segoe UI', sans-serif`;
-    const tw = ctx.measureText(label).width;
-    const pad = 7;
-    const bw = tw + pad * 2;
-    const bh = 22;
+    const subFs = 10;
+    const pad = 8;
+    const bh = sub ? 36 : 24;
+
+    ctx.font = `bold ${fs}px 'Segoe UI', sans-serif`;
+    const labelW = ctx.measureText(label).width;
+    ctx.font = `${subFs}px 'Segoe UI', sans-serif`;
+    const subW = sub ? ctx.measureText(sub).width : 0;
+    const bw = Math.max(labelW, subW) + pad * 2;
 
     let bx = sx + 14;
     let by = sy - bh / 2;
@@ -451,17 +573,23 @@ export class GraphView {
     if (by < 8) by = 8;
     if (by + bh > H - 8) by = H - bh - 8;
 
-    ctx.fillStyle = 'rgba(5,5,20,0.92)';
-    ctx.strokeStyle = n.color + 'aa';
+    ctx.fillStyle = 'rgba(5,5,20,0.95)';
+    ctx.strokeStyle = n.color + 'cc';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.roundRect(bx, by, bw, bh, 4);
+    ctx.roundRect(bx, by, bw, bh, 5);
     ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle = '#eee';
-    ctx.font = `${fs}px 'Segoe UI', sans-serif`;
-    ctx.fillText(label, bx + pad, by + bh / 2 + 4);
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${fs}px 'Segoe UI', sans-serif`;
+    ctx.fillText(label, bx + pad, by + (sub ? 14 : bh / 2 + 4));
+
+    if (sub) {
+      ctx.fillStyle = '#888';
+      ctx.font = `${subFs}px 'Segoe UI', sans-serif`;
+      ctx.fillText(sub, bx + pad, by + 28);
+    }
   }
 
   hitTest(sx, sy) {
