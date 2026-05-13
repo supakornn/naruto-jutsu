@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+@layer base {
+  * { box-sizing: border-box; }
+  body { margin: 0; overflow: hidden; }
+  button { cursor: pointer; }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+}
