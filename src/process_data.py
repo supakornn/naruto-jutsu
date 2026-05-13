@@ -41,6 +41,17 @@ TYPE_COLORS = {
     "Reincarnation Ninjutsu": "#483D8B",
     "Regeneration Techniques": "#7CFC00",
     "Gelel Techniques": "#FF4500",
+    "Nintaijutsu": "#3CB371",
+    "Jujutsu": "#B8860B",
+    "Kekkei Tōta": "#FF69B4",
+    "Kyūjutsu": "#D2B48C",
+    "Ninshū": "#E0E0E0",
+}
+
+# Normalize variant spellings/casing to canonical names
+TYPE_ALIASES: dict[str, str] = {
+    "fighting style": "Fighting Style",
+    "space-time ninjutsu": "Space–Time Ninjutsu",  # hyphen → en-dash
 }
 DEFAULT_COLOR = "#888888"
 
@@ -72,16 +83,22 @@ CHAKRA_RELEASES = [
 CHAKRA_DISPLAY = {r: r.replace(" Release", "") for r in CHAKRA_RELEASES}
 
 DERIVED_PATTERNS = [
-    (
-        re.compile(r"(?:copy|copied version|copied form) of (?:the |a )?(.+?)(?:\.|,|$)", re.I),
-        "derived_from",
-    ),
+    (re.compile(r"(?:copy|copied version|copied form) of (?:the |a )?(.+?)(?:\.|,|$)", re.I), "derived_from"),
     (re.compile(r"based on (?:the |a )?(.+?)(?:\.|,|$)", re.I), "derived_from"),
     (re.compile(r"variation of (?:the |a )?(.+?)(?:\.|,|$)", re.I), "derived_from"),
     (re.compile(r"derived from (?:the |a )?(.+?)(?:\.|,|$)", re.I), "derived_from"),
     (re.compile(r"similar to (?:the |a )?(.+?)(?:\.|,|$)", re.I), "similar_to"),
     (re.compile(r"stronger version of (?:the |a )?(.+?)(?:\.|,|$)", re.I), "derived_from"),
     (re.compile(r"modified version of (?:the |a )?(.+?)(?:\.|,|$)", re.I), "derived_from"),
+    (re.compile(r"enhanced version of (?:the |a )?(.+?)(?:\.|,|$)", re.I), "derived_from"),
+    (re.compile(r"combination of (?:the |a )?(.+?)(?:\.|,|$)", re.I), "derived_from"),
+    (re.compile(r"extension of (?:the |a )?(.+?)(?:\.|,|$)", re.I), "derived_from"),
+    (re.compile(r"(?:advanced|improved|perfected) form of (?:the |a )?(.+?)(?:\.|,|$)", re.I), "derived_from"),
+    (re.compile(r"(?:technique|jutsu) (?:is )?(?:an? )?(?:alternate|alternative) (?:form|version) of (?:the |a )?(.+?)(?:\.|,|$)", re.I), "derived_from"),
+    (re.compile(r"(?:works|functions|operates) (?:similarly|in a similar (?:way|manner)) to (?:the |a )?(.+?)(?:\.|,|$)", re.I), "similar_to"),
+    (re.compile(r"counterpart (?:to|of) (?:the |a )?(.+?)(?:\.|,|$)", re.I), "similar_to"),
+    (re.compile(r"(?:successor|predecessor) (?:to|of) (?:the |a )?(.+?)(?:\.|,|$)", re.I), "derived_from"),
+    (re.compile(r"evolved? (?:form|version) of (?:the |a )?(.+?)(?:\.|,|$)", re.I), "derived_from"),
 ]
 
 GOLDEN_ANGLE = math.pi * (3 - math.sqrt(5))
@@ -94,7 +111,12 @@ def generate_id(text: str) -> str:
 def parse_jutsu_types(type_string: str) -> list[str]:
     if not type_string or not type_string.strip():
         return []
-    return [t.strip() for t in type_string.split(",") if t.strip()]
+    result = []
+    for t in type_string.split(","):
+        t = t.strip()
+        if t:
+            result.append(TYPE_ALIASES.get(t.lower(), t))
+    return result
 
 
 def extract_rank(description: str) -> str | None:
