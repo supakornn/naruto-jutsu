@@ -1,5 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { browser } from '$app/environment';
   import { GraphView, typeColor } from '$lib/GraphView.js';
 
   let canvas = $state(null);
@@ -14,6 +15,10 @@
   let searchQuery = $state('');
   let selectedNode = $state(null);
   let showFilters = $state(false);
+  let showLegend = $state(false);
+  let relOnly = $state(false);
+  let memberSearch = $state('');
+  let memberIndex = $state(-1);
 
   let anyFilter = $derived(
     activeTypes.size > 0 || activeRanks.size > 0 || activeChakras.size > 0 || searchQuery.length >= 2,
@@ -38,7 +43,45 @@
       .filter((r) => r.node);
   });
 
+  let categoryMembers = $derived.by(() => {
+    if (!view || !selectedNode || selectedNode.type !== 'category') return [];
+    return view.nodes
+      .filter((n) => n.type === 'jutsu' && n.jutsu_types?.includes(selectedNode.label))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  });
+
+  let filteredMembers = $derived(
+    memberSearch.length >= 1
+      ? categoryMembers.filter((n) => n.label.toLowerCase().includes(memberSearch.toLowerCase()))
+      : categoryMembers
+  );
+
+  $effect(() => {
+    // reset index when list changes
+    filteredMembers;
+    memberIndex = -1;
+    view?.setListHover(null);
+  });
+
+  function onKey(e) {
+    const list = filteredMembers.slice(0, 80);
+    if (!selectedNode || selectedNode.type !== 'category' || !list.length) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const dir = e.key === 'ArrowDown' ? 1 : -1;
+      memberIndex = Math.max(0, Math.min(list.length - 1, memberIndex + dir));
+      const node = list[memberIndex];
+      view?.setListHover(node);
+      document.getElementById(`member-${memberIndex}`)?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter' && memberIndex >= 0) {
+      focusNode(list[memberIndex]);
+    } else if (e.key === 'Escape') {
+      view?.select(null);
+    }
+  }
+
   onMount(async () => {
+    if (browser) window.addEventListener('keydown', onKey);
     try {
       const res = await fetch('/graph_data.json');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -51,10 +94,17 @@
     }
   });
 
-  onDestroy(() => view?.destroy());
+  onDestroy(() => {
+    view?.destroy();
+    if (browser) window.removeEventListener('keydown', onKey);
+  });
 
   $effect(() => {
     view?.setFilters({ activeTypes, activeRanks, activeChakras, searchQuery });
+  });
+
+  $effect(() => {
+    view?.setRelOnly(relOnly);
   });
 
   function toggle(set, val) {
@@ -95,6 +145,17 @@
       🍥 Naruto Jutsu Graph
     </h1>
     <span class="select-none text-xs text-gray-600">{totalJutsus} jutsus · {totalTypes} types</span>
+    <a
+      href="https://github.com/supakornn/naruto-jutsu"
+      target="_blank"
+      rel="noopener noreferrer"
+      class="pointer-events-auto flex items-center gap-1.5 rounded-lg border border-white/10 bg-black/70 px-3 py-1.5 text-xs text-gray-500 backdrop-blur transition-all duration-150 hover:border-orange-500/50 hover:bg-orange-500/5 hover:text-white active:scale-95"
+    >
+      <svg class="size-3.5" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+      </svg>
+      GitHub
+    </a>
 
     <div class="pointer-events-auto ml-auto flex items-center gap-2">
       <input
@@ -112,6 +173,24 @@
             : 'border-white/10 text-gray-500 hover:border-orange-500/40 hover:text-gray-200',
         ].join(' ')}
       >{anyFilter ? '● Filter' : 'Filter'}</button>
+      <button
+        onclick={() => (showLegend = !showLegend)}
+        class={[
+          'rounded-full border px-3 py-1.5 text-xs transition-all duration-150 active:scale-95',
+          showLegend
+            ? 'border-orange-500 bg-orange-500/10 text-orange-400 hover:bg-orange-500/20'
+            : 'border-white/10 text-gray-500 hover:border-orange-500/40 hover:text-gray-200',
+        ].join(' ')}
+      >Legend</button>
+      <button
+        onclick={() => (relOnly = !relOnly)}
+        class={[
+          'rounded-full border px-3 py-1.5 text-xs transition-all duration-150 active:scale-95',
+          relOnly
+            ? 'border-yellow-500 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20'
+            : 'border-white/10 text-gray-500 hover:border-yellow-500/40 hover:text-gray-200',
+        ].join(' ')}
+      >Relations</button>
     </div>
   </header>
 
@@ -174,18 +253,26 @@
         </div>
       {/if}
 
-      <div class="mt-4 border-t border-white/5 pt-3 text-[0.65rem] font-semibold uppercase tracking-widest text-gray-600">Legend</div>
+    </aside>
+  {/if}
+
+  {#if showLegend}
+    <aside
+      class="absolute top-14 right-5 z-20 max-h-[75vh] w-52 overflow-y-auto rounded-xl border border-white/10 bg-[#080818]/95 p-4 shadow-2xl backdrop-blur"
+      style={showFilters ? 'right: 17rem' : ''}
+    >
+      <span class="text-xs font-semibold uppercase tracking-widest text-orange-500">Legend</span>
       <div class="mt-2 space-y-0.5">
         {#each Object.entries(typeDistribution) as [type, count]}
           <button
-            onclick={() => { focusType(type); showFilters = false; }}
+            onclick={() => { focusType(type); showLegend = false; }}
             class="flex w-full items-center gap-2 rounded px-1 py-0.5 transition-all duration-150 hover:bg-white/5 hover:translate-x-0.5 active:scale-[0.98]"
           >
             <span
-              class="size-2 shrink-0 rounded-full transition-all duration-150"
+              class="size-2 shrink-0 rounded-full"
               style="background:{typeColor(type)}; box-shadow:0 0 4px {typeColor(type)}"
             ></span>
-            <span class="flex-1 text-left text-[0.72rem] text-gray-400 group-hover:text-gray-200">{type}</span>
+            <span class="flex-1 text-left text-[0.72rem] text-gray-400">{type}</span>
             <span class="text-[0.65rem] text-gray-600">{count}</span>
           </button>
         {/each}
@@ -205,12 +292,36 @@
 
       <p class="mb-2 pr-4 text-base font-semibold leading-snug text-white">{selectedNode.label}</p>
 
-      <div class="mb-3 flex flex-wrap gap-1">
-        {#if selectedNode.type === 'category'}
-          <span class="rounded-full border border-gray-600 px-2 py-0.5 text-[0.65rem] text-gray-400">
-            {selectedNode.count} jutsus
-          </span>
-        {:else}
+      {#if selectedNode.type === 'category'}
+        <!-- Category: show searchable member list -->
+        <span class="text-[0.65rem] text-gray-500">{selectedNode.count} jutsus</span>
+        <input
+          bind:value={memberSearch}
+          type="text"
+          placeholder="Search members…"
+          class="mt-2 w-full rounded-lg border border-white/10 bg-black/50 px-3 py-1.5 text-xs text-white outline-none placeholder:text-gray-600 focus:border-orange-500/50"
+        />
+        <div class="mt-2 space-y-0.5">
+          {#each filteredMembers.slice(0, 80) as member, i}
+            <button
+              id="member-{i}"
+              onclick={() => focusNode(member)}
+              onmouseenter={() => { memberIndex = i; view?.setListHover(member); }}
+              onmouseleave={() => view?.setListHover(null)}
+              class={[
+                'block w-full rounded px-1 py-0.5 text-left text-[0.72rem] transition-all duration-150 hover:bg-white/5 hover:translate-x-0.5 active:scale-[0.98]',
+                memberIndex === i ? 'bg-white/8 text-white translate-x-0.5' : 'text-gray-400',
+              ].join(' ')}
+            >{member.label}</button>
+          {/each}
+          {#if filteredMembers.length > 80}
+            <p class="pt-1 text-center text-[0.65rem] text-gray-600">+{filteredMembers.length - 80} more — search to narrow</p>
+          {/if}
+        </div>
+
+      {:else}
+        <!-- Jutsu: show type chips, description, related -->
+        <div class="mb-3 flex flex-wrap gap-1">
           {#each selectedNode.jutsu_types ?? [] as t}
             <button
               onclick={() => focusType(t)}
@@ -218,34 +329,29 @@
               style="border-color:{typeColor(t)}60; background:{typeColor(t)}10"
             >{t}</button>
           {/each}
-          {#if selectedNode.rank}
-            <span class="rounded-full border border-yellow-500/40 px-2 py-0.5 text-[0.65rem] text-yellow-300">
-              {selectedNode.rank}-rank
-            </span>
-          {/if}
           {#each selectedNode.chakra_natures ?? [] as c}
             <span class="rounded-full border border-cyan-500/40 px-2 py-0.5 text-[0.65rem] text-cyan-300">{c}</span>
           {/each}
-        {/if}
-      </div>
-
-      <p class="text-[0.75rem] leading-relaxed text-gray-500">
-        {selectedNode.full_description || selectedNode.description || 'No description.'}
-      </p>
-
-      {#if relatedNodes.length}
-        <div class="mt-3 border-t border-white/5 pt-2">
-          <p class="mb-1 text-[0.65rem] font-semibold uppercase tracking-widest text-gray-600">Related</p>
-          {#each relatedNodes as { node, dir, rel }}
-            <button
-              onclick={() => focusNode(node)}
-              class="block w-full rounded px-1 py-0.5 text-left text-[0.72rem] text-gray-500 transition-all duration-150 hover:bg-white/5 hover:translate-x-0.5 hover:text-yellow-300 active:scale-[0.98]"
-            >
-              <span class="mr-1 text-gray-700">{dir} {rel === 'derived_from' ? 'derived' : 'similar'}</span>
-              {node.label}
-            </button>
-          {/each}
         </div>
+
+        <p class="text-[0.75rem] leading-relaxed text-gray-500">
+          {selectedNode.full_description || selectedNode.description || 'No description.'}
+        </p>
+
+        {#if relatedNodes.length}
+          <div class="mt-3 border-t border-white/5 pt-2">
+            <p class="mb-1 text-[0.65rem] font-semibold uppercase tracking-widest text-gray-600">Related</p>
+            {#each relatedNodes as { node, dir, rel }}
+              <button
+                onclick={() => focusNode(node)}
+                class="block w-full rounded px-1 py-0.5 text-left text-[0.72rem] text-gray-500 transition-all duration-150 hover:bg-white/5 hover:translate-x-0.5 hover:text-yellow-300 active:scale-[0.98]"
+              >
+                <span class="mr-1 text-gray-700">{dir} {rel === 'derived_from' ? 'derived' : 'similar'}</span>
+                {node.label}
+              </button>
+            {/each}
+          </div>
+        {/if}
       {/if}
     </aside>
   {/if}
