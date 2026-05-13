@@ -40,7 +40,7 @@
 
   onMount(async () => {
     try {
-      const res = await fetch('/api/graph');
+      const res = await fetch('/graph_data.json');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       data = await res.json();
       view = new GraphView(canvas, data, { onSelect: (n) => (selectedNode = n) });

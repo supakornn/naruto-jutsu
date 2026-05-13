@@ -294,7 +294,7 @@ def apply_layout(graph: dict) -> dict:
 
 def main():
     input_path = Path(__file__).parent.parent / "data" / "jutsus.jsonl"
-    output_path = Path(__file__).parent.parent / "data" / "graph_data.json"
+    output_path = Path(__file__).parent.parent / "frontend" / "static" / "graph_data.json"
 
     print(f"Loading {input_path}...")
     jutsus = load_jutsus(input_path)
