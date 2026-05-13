@@ -1,0 +1,20 @@
+[project]
+name = "naruto-jutsu"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.27.0",
+    "networkx>=3.2.1",
+    "python-louvain>=0.16",
+    "python-multipart>=0.0.6",
+]
+
+[dependency-groups]
+dev = ["ruff"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
