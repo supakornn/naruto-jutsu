@@ -1,4 +1,4 @@
-src/
-pyproject.toml
-uv.lock
-data/
+/src/
+/pyproject.toml
+/uv.lock
+/data/
